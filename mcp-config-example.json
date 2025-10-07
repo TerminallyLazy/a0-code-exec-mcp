@@ -1,0 +1,97 @@
+{
+  "mcpServers": {
+    "ao-code-exec": {
+      "command": "python",
+      "args": ["-m", "ao_code_exec_mcp.server"],
+      "env": {
+        "SHELL_EXECUTABLE": "/bin/bash",
+        "INIT_COMMANDS": "",
+        "TIMEOUT_DEFAULT": "30",
+        "TIMEOUT_FIRST": "60",
+        "MAX_OUTPUT_LINES": "1000"
+      }
+    }
+  },
+  "examples": {
+    "with-venv": {
+      "mcpServers": {
+        "ao-code-exec": {
+          "command": "python",
+          "args": ["-m", "ao_code_exec_mcp.server"],
+          "env": {
+            "SHELL_EXECUTABLE": "/bin/bash",
+            "INIT_COMMANDS": "source /path/to/venv/bin/activate",
+            "TIMEOUT_DEFAULT": "30",
+            "TIMEOUT_FIRST": "60"
+          }
+        }
+      }
+    },
+    "windows": {
+      "mcpServers": {
+        "ao-code-exec": {
+          "command": "python",
+          "args": ["-m", "ao_code_exec_mcp.server"],
+          "env": {
+            "SHELL_EXECUTABLE": "cmd.exe",
+            "INIT_COMMANDS": "",
+            "TIMEOUT_DEFAULT": "30",
+            "TIMEOUT_FIRST": "60"
+          }
+        }
+      }
+    },
+    "with-custom-init": {
+      "mcpServers": {
+        "ao-code-exec": {
+          "command": "python",
+          "args": ["-m", "ao_code_exec_mcp.server"],
+          "env": {
+            "SHELL_EXECUTABLE": "/bin/bash",
+            "INIT_COMMANDS": "export PATH=$PATH:/usr/local/bin; source ~/.bashrc; cd /workspace",
+            "TIMEOUT_DEFAULT": "45",
+            "TIMEOUT_FIRST": "90"
+          }
+        }
+      }
+    },
+    "high-timeout": {
+      "mcpServers": {
+        "ao-code-exec": {
+          "command": "python",
+          "args": ["-m", "ao_code_exec_mcp.server"],
+          "env": {
+            "SHELL_EXECUTABLE": "/bin/bash",
+            "INIT_COMMANDS": "",
+            "TIMEOUT_DEFAULT": "120",
+            "TIMEOUT_FIRST": "300"
+          }
+        }
+      }
+    },
+    "zsh-shell": {
+      "mcpServers": {
+        "ao-code-exec": {
+          "command": "python",
+          "args": ["-m", "ao_code_exec_mcp.server"],
+          "env": {
+            "SHELL_EXECUTABLE": "/bin/zsh",
+            "INIT_COMMANDS": "source ~/.zshrc",
+            "TIMEOUT_DEFAULT": "30",
+            "TIMEOUT_FIRST": "60"
+          }
+        }
+      }
+    }
+  },
+  "notes": {
+    "shell_executable": "Path to shell executable (e.g., /bin/bash, /bin/zsh, cmd.exe)",
+    "init_commands": "Commands to run when a new session is created. Separate multiple commands with semicolons.",
+    "timeout_default": "Default timeout in seconds for command execution (default: 30)",
+    "timeout_first": "Timeout for the first command in a new session (default: 60)",
+    "max_output_lines": "Maximum number of output lines to keep in buffer (default: 1000)",
+    "virtual_environments": "Use INIT_COMMANDS to activate virtual environments: 'source /path/to/venv/bin/activate'",
+    "multiple_commands": "Chain initialization commands: 'export VAR=value; source file.sh; cd /path'",
+    "windows_note": "On Windows, use cmd.exe or powershell.exe as SHELL_EXECUTABLE"
+  }
+}
