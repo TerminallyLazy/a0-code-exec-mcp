@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
 """
-A0 Code Execution MCP Server
-Provides terminal and Python code execution tools via MCP protocol
+A0 Code Execution MCP Server - FastMCP Version
+Provides terminal and Python code execution tools via MCP protocol using FastMCP
 """
 
 import asyncio
 import logging
 import os
 import sys
-from typing import Any
+from typing import Any, Optional
 
-from mcp.server import Server
-from mcp.server.models import InitializationOptions
-import mcp.server.stdio
-import mcp.types as types
+from fastmcp import FastMCP
 
 from .tools import CodeExecutionTools
 
@@ -26,346 +23,215 @@ logging.basicConfig(
 logger = logging.getLogger("ao-code-exec-mcp")
 
 
-class A0CodeExecMCPServer:
-    """MCP Server for A0 Code Execution Tools."""
+def create_server() -> FastMCP:
+    """Create and configure the FastMCP server."""
 
-    def __init__(self):
-        """Initialize the MCP server."""
-        self.server = Server("ao-code-exec-mcp")
+    # Parse configuration from environment variables
+    if sys.platform.startswith("win"):
+        default_executable = os.environ.get("COMSPEC", "cmd.exe")
+    else:
+        default_executable = os.environ.get("SHELL", "/bin/bash")
 
-        # Parse configuration from environment variables
-        self.config = self._parse_config()
+    config = {
+        "executable": os.environ.get("SHELL_EXECUTABLE", default_executable),
+        "init_commands": _parse_init_commands(os.environ.get("INIT_COMMANDS", "")),
+        "default_timeout": int(os.environ.get("TIMEOUT_DEFAULT", "30")),
+        "first_output_timeout": int(os.environ.get("TIMEOUT_FIRST", "60")),
+    }
 
-        # Initialize code execution tools
-        self.tools = CodeExecutionTools(
-            executable=self.config["executable"],
-            init_commands=self.config["init_commands"],
-            default_timeout=self.config["default_timeout"],
-            first_output_timeout=self.config["first_output_timeout"],
-        )
+    logger.info(f"Configuration: {config}")
 
-        # Setup MCP handlers
-        self._setup_handlers()
+    # Initialize code execution tools
+    tools = CodeExecutionTools(
+        executable=config["executable"],
+        init_commands=config["init_commands"],
+        default_timeout=config["default_timeout"],
+        first_output_timeout=config["first_output_timeout"],
+    )
 
-        logger.info(
-            f"A0 Code Execution MCP Server initialized "
-            f"(executable: {self.config['executable']})"
-        )
+    # Create FastMCP server
+    mcp = FastMCP("A0 Code Execution")
 
-    def _parse_config(self) -> dict[str, Any]:
-        """Parse configuration from environment variables."""
-        # Detect platform defaults
-        if sys.platform.startswith("win"):
-            default_executable = os.environ.get("COMSPEC", "cmd.exe")
-        else:
-            default_executable = os.environ.get("SHELL", "/bin/bash")
+    # Register tools
+    @mcp.tool()
+    async def execute_terminal(
+        command: str,
+        session: str = "default",
+        timeout: Optional[int] = None,
+    ) -> str:
+        """
+        Execute shell commands in a persistent terminal session.
 
-        config = {
-            "executable": os.environ.get("SHELL_EXECUTABLE", default_executable),
-            "init_commands": self._parse_init_commands(
-                os.environ.get("INIT_COMMANDS", "")
-            ),
-            "default_timeout": int(os.environ.get("TIMEOUT_DEFAULT", "30")),
-            "first_output_timeout": int(os.environ.get("TIMEOUT_FIRST", "60")),
-            "max_output_lines": int(os.environ.get("MAX_OUTPUT_LINES", "1000")),
-        }
+        Commands run in a stateful environment where environment variables,
+        working directory, and shell state persist between executions.
 
-        logger.info(f"Configuration: {config}")
-        return config
+        Args:
+            command: Shell command to execute
+            session: Session identifier for command execution (default: "default")
+            timeout: Command timeout in seconds (optional)
 
-    def _parse_init_commands(self, init_commands_str: str) -> list[str]:
-        """Parse init commands from environment variable."""
-        if not init_commands_str:
-            return []
+        Returns:
+            Formatted execution result with output and exit code
+        """
+        result = await tools.execute_terminal(command, session, timeout)
+        return _format_terminal_result(result)
 
-        # Support both semicolon and newline-separated commands
-        commands = []
-        for cmd in init_commands_str.replace("\n", ";").split(";"):
-            cmd = cmd.strip()
-            if cmd:
-                commands.append(cmd)
+    @mcp.tool()
+    async def execute_python(
+        code: str,
+        session: str = "default",
+        timeout: Optional[int] = None,
+    ) -> str:
+        """
+        Execute Python code using IPython in a persistent session.
 
-        return commands
+        Code runs in a stateful environment where variables, imports,
+        and definitions persist between executions.
 
-    def _setup_handlers(self) -> None:
-        """Setup MCP protocol handlers."""
+        Args:
+            code: Python code to execute
+            session: Session identifier for code execution (default: "default")
+            timeout: Execution timeout in seconds (optional)
 
-        @self.server.list_tools()
-        async def handle_list_tools() -> list[types.Tool]:
-            """List available tools."""
-            return [
-                types.Tool(
-                    name="execute_terminal",
-                    description=(
-                        "Execute shell commands in a persistent terminal session. "
-                        "Commands run in a stateful environment where environment variables, "
-                        "working directory, and shell state persist between executions. "
-                        "Use this for running bash/shell commands, system operations, "
-                        "and command-line tools."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "command": {
-                                "type": "string",
-                                "description": "Shell command to execute",
-                            },
-                            "session": {
-                                "type": "string",
-                                "description": (
-                                    "Session identifier for command execution. "
-                                    "Commands in the same session share state."
-                                ),
-                                "default": "default",
-                            },
-                            "timeout": {
-                                "type": "number",
-                                "description": "Command timeout in seconds",
-                                "default": self.config["default_timeout"],
-                            },
-                        },
-                        "required": ["command"],
-                    },
-                ),
-                types.Tool(
-                    name="execute_python",
-                    description=(
-                        "Execute Python code using IPython in a persistent session. "
-                        "Code runs in a stateful environment where variables, imports, "
-                        "and definitions persist between executions. "
-                        "Use this for Python scripting, data analysis, calculations, "
-                        "and algorithmic tasks. Supports all Python libraries and IPython features."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "code": {
-                                "type": "string",
-                                "description": "Python code to execute",
-                            },
-                            "session": {
-                                "type": "string",
-                                "description": (
-                                    "Session identifier for code execution. "
-                                    "Code in the same session shares variables and state."
-                                ),
-                                "default": "default",
-                            },
-                            "timeout": {
-                                "type": "number",
-                                "description": "Execution timeout in seconds",
-                                "default": self.config["default_timeout"],
-                            },
-                        },
-                        "required": ["code"],
-                    },
-                ),
-                types.Tool(
-                    name="output",
-                    description=(
-                        "Retrieve recent output from terminal or Python execution sessions. "
-                        "Returns a buffer of recent command outputs and results. "
-                        "Use this to review execution history or debug issues."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "session": {
-                                "type": "string",
-                                "description": "Session identifier to retrieve output from",
-                                "default": "default",
-                            },
-                            "lines": {
-                                "type": "number",
-                                "description": "Number of recent output lines to retrieve",
-                                "default": 50,
-                            },
-                        },
-                    },
-                ),
-                types.Tool(
-                    name="reset",
-                    description=(
-                        "Reset/clear execution sessions. Closes the session and clears "
-                        "all state (variables, environment, history). "
-                        "If no session is specified, resets all sessions. "
-                        "Use this to start fresh or recover from errors."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "session": {
-                                "type": "string",
-                                "description": (
-                                    "Session identifier to reset. "
-                                    "If not specified, resets all sessions."
-                                ),
-                            },
-                        },
-                    },
-                ),
-            ]
+        Returns:
+            Formatted execution result with output or errors
+        """
+        result = await tools.execute_python(code, session, timeout)
+        return _format_python_result(result)
 
-        @self.server.call_tool()
-        async def handle_call_tool(
-            name: str, arguments: dict[str, Any] | None
-        ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
-            """Handle tool execution requests."""
-            arguments = arguments or {}
+    @mcp.tool()
+    async def output(
+        session: str = "default",
+        lines: int = 50,
+    ) -> str:
+        """
+        Retrieve recent output from terminal or Python execution sessions.
 
-            try:
-                if name == "execute_terminal":
-                    result = await self.tools.execute_terminal(
-                        command=arguments["command"],
-                        session=arguments.get("session", "default"),
-                        timeout=arguments.get("timeout"),
-                    )
-                    return [
-                        types.TextContent(
-                            type="text",
-                            text=self._format_terminal_result(result),
-                        )
-                    ]
+        Returns a buffer of recent command outputs and results.
 
-                elif name == "execute_python":
-                    result = await self.tools.execute_python(
-                        code=arguments["code"],
-                        session=arguments.get("session", "default"),
-                        timeout=arguments.get("timeout"),
-                    )
-                    return [
-                        types.TextContent(
-                            type="text",
-                            text=self._format_python_result(result),
-                        )
-                    ]
+        Args:
+            session: Session identifier to retrieve output from (default: "default")
+            lines: Number of recent output lines to retrieve (default: 50)
 
-                elif name == "output":
-                    result = await self.tools.get_output(
-                        session=arguments.get("session", "default"),
-                        lines=arguments.get("lines", 50),
-                    )
-                    return [
-                        types.TextContent(
-                            type="text",
-                            text=self._format_output_result(result),
-                        )
-                    ]
+        Returns:
+            Recent session output
+        """
+        result = await tools.get_output(session, lines)
+        return _format_output_result(result)
 
-                elif name == "reset":
-                    result = await self.tools.reset(
-                        session=arguments.get("session"),
-                    )
-                    return [
-                        types.TextContent(
-                            type="text",
-                            text=self._format_reset_result(result),
-                        )
-                    ]
+    @mcp.tool()
+    async def reset(session: Optional[str] = None) -> str:
+        """
+        Reset/clear execution sessions.
 
-                else:
-                    return [
-                        types.TextContent(
-                            type="text",
-                            text=f"Error: Unknown tool '{name}'",
-                        )
-                    ]
+        Closes the session and clears all state (variables, environment, history).
+        If no session is specified, resets all sessions.
 
-            except Exception as e:
-                logger.error(f"Error executing tool '{name}': {e}", exc_info=True)
-                return [
-                    types.TextContent(
-                        type="text",
-                        text=f"Error executing {name}: {str(e)}",
-                    )
-                ]
+        Args:
+            session: Session identifier to reset (optional, omit to reset all)
 
-    def _format_terminal_result(self, result: dict[str, Any]) -> str:
-        """Format terminal execution result for display."""
-        output_parts = []
+        Returns:
+            Success message
+        """
+        result = await tools.reset(session)
+        return _format_reset_result(result)
 
-        if result["success"]:
-            output_parts.append(f"✓ Command executed successfully (session: {result['session']})")
-        else:
-            output_parts.append(f"✗ Command failed (session: {result['session']})")
+    logger.info(
+        f"A0 Code Execution MCP Server initialized (executable: {config['executable']})"
+    )
 
-        if result.get("output"):
-            output_parts.append("\nOutput:")
-            output_parts.append(result["output"])
+    return mcp
 
-        if result.get("error"):
-            output_parts.append("\nError:")
-            output_parts.append(result["error"])
 
-        if result.get("timed_out"):
-            output_parts.append("\n⚠ Command timed out")
+def _parse_init_commands(init_commands_str: str) -> list[str]:
+    """Parse init commands from environment variable."""
+    if not init_commands_str:
+        return []
 
-        output_parts.append(f"\nExit code: {result.get('exit_code', 'unknown')}")
+    commands = []
+    for cmd in init_commands_str.replace("\n", ";").split(";"):
+        cmd = cmd.strip()
+        if cmd:
+            commands.append(cmd)
 
+    return commands
+
+
+def _format_terminal_result(result: dict[str, Any]) -> str:
+    """Format terminal execution result for display."""
+    output_parts = []
+
+    if result["success"]:
+        output_parts.append(f"✓ Command executed successfully (session: {result['session']})")
+    else:
+        output_parts.append(f"✗ Command failed (session: {result['session']})")
+
+    if result.get("output"):
+        output_parts.append("\nOutput:")
+        output_parts.append(result["output"])
+
+    if result.get("error"):
+        output_parts.append("\nError:")
+        output_parts.append(result["error"])
+
+    if result.get("timed_out"):
+        output_parts.append("\n⚠ Command timed out")
+
+    output_parts.append(f"\nExit code: {result.get('exit_code', 'unknown')}")
+
+    return "\n".join(output_parts)
+
+
+def _format_python_result(result: dict[str, Any]) -> str:
+    """Format Python execution result for display."""
+    output_parts = []
+
+    if result["success"]:
+        output_parts.append(f"✓ Python code executed successfully (session: {result['session']})")
+    else:
+        output_parts.append(f"✗ Python execution failed (session: {result['session']})")
+
+    if result.get("output"):
+        output_parts.append("\nOutput:")
+        output_parts.append(result["output"])
+
+    if result.get("error"):
+        output_parts.append("\nError:")
+        output_parts.append(result["error"])
+
+    return "\n".join(output_parts)
+
+
+def _format_output_result(result: dict[str, Any]) -> str:
+    """Format output retrieval result for display."""
+    if result["success"]:
+        output_parts = [
+            f"Session '{result['session']}' output ({result['lines_returned']} lines):",
+            "",
+            result["output"] if result["output"] else "(no output)",
+        ]
         return "\n".join(output_parts)
+    else:
+        return f"Error retrieving output: {result.get('error', 'unknown error')}"
 
-    def _format_python_result(self, result: dict[str, Any]) -> str:
-        """Format Python execution result for display."""
-        output_parts = []
 
-        if result["success"]:
-            output_parts.append(f"✓ Python code executed successfully (session: {result['session']})")
-        else:
-            output_parts.append(f"✗ Python execution failed (session: {result['session']})")
+def _format_reset_result(result: dict[str, Any]) -> str:
+    """Format reset result for display."""
+    if result["success"]:
+        return f"✓ {result['message']}"
+    else:
+        return f"✗ {result['message']}"
 
-        if result.get("output"):
-            output_parts.append("\nOutput:")
-            output_parts.append(result["output"])
 
-        if result.get("error"):
-            output_parts.append("\nError:")
-            output_parts.append(result["error"])
-
-        return "\n".join(output_parts)
-
-    def _format_output_result(self, result: dict[str, Any]) -> str:
-        """Format output retrieval result for display."""
-        if result["success"]:
-            output_parts = [
-                f"Session '{result['session']}' output ({result['lines_returned']} lines):",
-                "",
-                result["output"] if result["output"] else "(no output)",
-            ]
-            return "\n".join(output_parts)
-        else:
-            return f"Error retrieving output: {result.get('error', 'unknown error')}"
-
-    def _format_reset_result(self, result: dict[str, Any]) -> str:
-        """Format reset result for display."""
-        if result["success"]:
-            return f"✓ {result['message']}"
-        else:
-            return f"✗ {result['message']}"
-
-    async def run(self) -> None:
-        """Run the MCP server."""
-        logger.info("Starting A0 Code Execution MCP Server...")
-
-        async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-            await self.server.run(
-                read_stream,
-                write_stream,
-                InitializationOptions(
-                    server_name="ao-code-exec-mcp",
-                    server_version="0.1.0",
-                    capabilities=self.server.get_capabilities(
-                        notification_options=None,
-                        experimental_capabilities={},
-                    ),
-                ),
-            )
+# Create the server instance
+mcp = create_server()
 
 
 def main() -> None:
     """Main entry point."""
     try:
-        server = A0CodeExecMCPServer()
-        asyncio.run(server.run())
+        logger.info("Starting A0 Code Execution MCP Server (FastMCP)...")
+        mcp.run()
     except KeyboardInterrupt:
         logger.info("Server interrupted by user")
         sys.exit(0)

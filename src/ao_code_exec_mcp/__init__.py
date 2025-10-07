@@ -5,7 +5,7 @@ Provides terminal and Python code execution tools
 
 __version__ = "0.1.0"
 
-from .server import A0CodeExecMCPServer, main
+from .server import main, create_server
 from .tools import CodeExecutionTools
 
-__all__ = ["A0CodeExecMCPServer", "CodeExecutionTools", "main"]
+__all__ = ["create_server", "CodeExecutionTools", "main"]

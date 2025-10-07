@@ -77,13 +77,28 @@ Reset/clear execution sessions.
 
 ## Installation
 
-### From Source
+### Using UV (Recommended)
+
+The easiest way to use this MCP server is with [UV](https://docs.astral.sh/uv/):
 
 ```bash
-# Clone the repository
+# Install from source
 git clone <repository-url>
 cd ao-code-exec-mcp
+uv sync
+```
 
+Then configure your MCP client to use:
+```json
+{
+  "command": "uv",
+  "args": ["--directory", "/path/to/ao-code-exec-mcp", "run", "ao-code-exec-mcp"]
+}
+```
+
+### Using Pip
+
+```bash
 # Install in development mode
 pip install -e .
 
@@ -91,10 +106,13 @@ pip install -e .
 pip install .
 ```
 
+Then use the installed command directly or via Python module.
+
 ### Dependencies
 
 - Python 3.10+
 - `mcp>=1.0.0` - MCP Python SDK
+- `fastmcp>=2.0.0` - FastMCP framework
 - `ipython>=8.0.0` - Python code execution
 - `pexpect>=4.9.0` - TTY session management
 - `psutil>=5.9.0` - Process utilities
@@ -105,23 +123,48 @@ pip install .
 
 Add to your MCP client's configuration file (e.g., `claude_desktop_config.json`):
 
+**Option 1: Using UV (Recommended)**
 ```json
 {
   "mcpServers": {
     "ao-code-exec": {
-      "command": "python",
-      "args": ["-m", "ao_code_exec_mcp.server"],
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/absolute/path/to/ao-code-exec-mcp",
+        "run",
+        "ao-code-exec-mcp"
+      ],
       "env": {
         "SHELL_EXECUTABLE": "/bin/bash",
-        "INIT_COMMANDS": "source ~/.bashrc",
+        "INIT_COMMANDS": "",
         "TIMEOUT_DEFAULT": "30",
-        "TIMEOUT_FIRST": "60",
-        "MAX_OUTPUT_LINES": "1000"
+        "TIMEOUT_FIRST": "60"
       }
     }
   }
 }
 ```
+
+**Option 2: Using Python directly**
+```json
+{
+  "mcpServers": {
+    "ao-code-exec": {
+      "command": "/path/to/your/venv/bin/python",
+      "args": ["-m", "ao_code_exec_mcp.server"],
+      "env": {
+        "SHELL_EXECUTABLE": "/bin/bash",
+        "INIT_COMMANDS": "",
+        "TIMEOUT_DEFAULT": "30",
+        "TIMEOUT_FIRST": "60"
+      }
+    }
+  }
+}
+```
+
+Replace `/path/to/your/venv/bin/python` with the Python interpreter where you installed the package.
 
 ### Environment Variables
 
@@ -313,6 +356,15 @@ black src/
 ruff check src/
 ```
 
+## Framework
+
+This server uses [FastMCP](https://gofastmcp.com), a modern framework for building MCP servers. FastMCP provides:
+
+- 🚀 Simpler, decorator-based tool registration
+- 📝 Automatic schema generation from type hints
+- 🔧 Built-in stdio transport handling
+- 🎯 Cleaner, more maintainable code
+
 ## Differences from Agent Zero
 
 This MCP server is a minimal extraction from Agent Zero with:
@@ -325,6 +377,7 @@ This MCP server is a minimal extraction from Agent Zero with:
 - ✅ **Kept**: Session state persistence
 - ✅ **Simplified**: Configuration via environment variables
 - ✅ **Improved**: Dedicated MCP tools (no runtime parameter)
+- ✅ **Modernized**: FastMCP framework for better developer experience
 
 ## License
 

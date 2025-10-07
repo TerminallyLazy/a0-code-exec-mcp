@@ -1,14 +1,18 @@
 {
   "mcpServers": {
     "ao-code-exec": {
-      "command": "python",
-      "args": ["-m", "ao_code_exec_mcp.server"],
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/absolute/path/to/ao-code-exec-mcp",
+        "run",
+        "ao-code-exec-mcp"
+      ],
       "env": {
         "SHELL_EXECUTABLE": "/bin/bash",
         "INIT_COMMANDS": "",
         "TIMEOUT_DEFAULT": "30",
-        "TIMEOUT_FIRST": "60",
-        "MAX_OUTPUT_LINES": "1000"
+        "TIMEOUT_FIRST": "60"
       }
     }
   },
@@ -16,11 +20,25 @@
     "with-venv": {
       "mcpServers": {
         "ao-code-exec": {
-          "command": "python",
-          "args": ["-m", "ao_code_exec_mcp.server"],
+          "command": "uv",
+          "args": ["--directory", "/path/to/ao-code-exec-mcp", "run", "ao-code-exec-mcp"],
           "env": {
             "SHELL_EXECUTABLE": "/bin/bash",
             "INIT_COMMANDS": "source /path/to/venv/bin/activate",
+            "TIMEOUT_DEFAULT": "30",
+            "TIMEOUT_FIRST": "60"
+          }
+        }
+      }
+    },
+    "with-python-directly": {
+      "mcpServers": {
+        "ao-code-exec": {
+          "command": "/path/to/venv/bin/python",
+          "args": ["-m", "ao_code_exec_mcp.server_fastmcp"],
+          "env": {
+            "SHELL_EXECUTABLE": "/bin/bash",
+            "INIT_COMMANDS": "",
             "TIMEOUT_DEFAULT": "30",
             "TIMEOUT_FIRST": "60"
           }
