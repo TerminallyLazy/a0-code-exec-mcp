@@ -1,6 +1,6 @@
 # A0 Code Execution MCP
 
-A minimal Model Context Protocol (MCP) server providing terminal and Python code execution tools. Extracted from the Agent Zero codebase with SSH and Node.js support removed for simplicity.
+A minimal Model Context Protocol (MCP) server providing terminal and Python code execution tools. Built using Agent Zero's original code execution utilities with SSH and Node.js support removed for simplicity.
 
 ## Features
 
@@ -114,8 +114,8 @@ Then use the installed command directly or via Python module.
 - `mcp>=1.0.0` - MCP Python SDK
 - `fastmcp>=2.0.0` - FastMCP framework
 - `ipython>=8.0.0` - Python code execution
-- `pexpect>=4.9.0` - TTY session management
-- `psutil>=5.9.0` - Process utilities
+- `webcolors>=1.13.0` - Terminal color output (for PrintStyle)
+- `pywinpty>=2.0.0` - Windows TTY support (optional, Windows only)
 
 ## Configuration
 
@@ -294,9 +294,12 @@ ao-code-exec-mcp/
 ### Components
 
 - **server.py**: MCP protocol handler, tool registration, stdio communication
-- **tools.py**: Tool implementations (execute_terminal, execute_python, output, reset)
-- **tty_session.py**: Low-level TTY session management using pexpect
-- **shell_local.py**: High-level shell session manager with multiple session support
+- **tools.py**: Tool implementations ported from Agent Zero (execute_terminal, execute_python, output, reset)
+- **tty_session.py**: Low-level async TTY session management from Agent Zero
+- **shell_local.py**: LocalInteractiveSession with ANSI/control code cleanup from Agent Zero
+- **print_style.py**: Colored terminal output utility from Agent Zero
+- **log.py**: Logging utilities from Agent Zero
+- **strings.py**: Text truncation utilities from Agent Zero
 - **prompts/**: Documentation for system behavior and response formats
 
 ## Security Considerations
@@ -367,13 +370,16 @@ This server uses [FastMCP](https://gofastmcp.com), a modern framework for buildi
 
 ## Differences from Agent Zero
 
-This MCP server is a minimal extraction from Agent Zero with:
+This MCP server uses Agent Zero's original code execution utilities with minimal modifications:
 
-- ✅ **Removed**: SSH execution support
+- ✅ **Removed**: SSH execution support (SSHInteractiveSession)
 - ✅ **Removed**: Node.js/Deno runtime support
-- ✅ **Removed**: Complex runtime switching
-- ✅ **Kept**: Local TTY session management
-- ✅ **Kept**: Python IPython execution
+- ✅ **Removed**: Agent context dependencies (agent.read_prompt, agent.config)
+- ✅ **Kept**: Original TTYSession with async support
+- ✅ **Kept**: LocalInteractiveSession with control code cleanup (clean_string)
+- ✅ **Kept**: PrintStyle for colored terminal output
+- ✅ **Kept**: Log utilities for execution tracking
+- ✅ **Kept**: Python IPython execution logic
 - ✅ **Kept**: Session state persistence
 - ✅ **Simplified**: Configuration via environment variables
 - ✅ **Improved**: Dedicated MCP tools (no runtime parameter)

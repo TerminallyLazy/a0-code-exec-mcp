@@ -27,6 +27,7 @@ dependencies = [
     "psutil>=5.9.0",
     "nest-asyncio>=1.5.0",
     "pywinpty>=2.0.0; platform_system=='Windows'",
+    "webcolors>=1.13.0",
 ]
 
 [project.scripts]
@@ -38,6 +39,9 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
+]
+windows = [
+    "pywinpty>=2.0.0",
 ]
 
 [tool.setuptools.packages.find]
