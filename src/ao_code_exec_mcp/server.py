@@ -4,7 +4,6 @@ A0 Code Execution MCP Server - FastMCP Version
 Provides terminal and Python code execution tools via MCP protocol using FastMCP
 """
 
-import asyncio
 import logging
 import os
 import sys
@@ -136,9 +135,7 @@ def create_server() -> FastMCP:
         result = await tools.reset(session)
         return _format_reset_result(result)
 
-    logger.info(
-        f"A0 Code Execution MCP Server initialized (executable: {config['executable']})"
-    )
+    logger.info(f"A0 Code Execution MCP Server initialized (executable: {config['executable']})")
 
     return mcp
 
