@@ -52,3 +52,6 @@ htmlcov/
 local-config.json
 .env
 .env.local
+
+uv.lock
+

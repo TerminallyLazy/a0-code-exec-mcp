@@ -1,25 +1,23 @@
 """
-MCP Tools Implementation
-Provides 4 tools: execute_terminal, execute_python, output, reset
+MCP Tools Implementation - Agent Zero Style
+Based on Agent Zero's code_execution_tool.py
 """
 
 import asyncio
 import logging
-import sys
-import os
-import tempfile
+import re
+import shlex
+import time
 from typing import Any, Dict, Optional
-from pathlib import Path
 
-from .shell_local import ShellSessionManager
+from .shell_manager import ShellSessionManager
 
 logger = logging.getLogger(__name__)
 
 
 class CodeExecutionTools:
     """
-    Code execution tools for MCP.
-    Provides terminal and Python execution with session management.
+    Code execution tools for MCP using Agent Zero's implementation.
     """
 
     def __init__(
@@ -29,33 +27,17 @@ class CodeExecutionTools:
         default_timeout: int = 30,
         first_output_timeout: int = 60,
     ):
-        """
-        Initialize code execution tools.
-
-        Args:
-            executable: Default shell executable
-            init_commands: Commands to run on session initialization
-            default_timeout: Default command timeout
-            first_output_timeout: Timeout for first command in a session
-        """
-        self.executable = executable
-        self.init_commands = init_commands or []
+        self.shell_manager = ShellSessionManager(
+            default_executable=executable,
+            default_init_commands=init_commands or [],
+            default_timeout=default_timeout,
+        )
         self.default_timeout = default_timeout
         self.first_output_timeout = first_output_timeout
 
-        # Shell session manager
-        self.shell_manager = ShellSessionManager(
-            default_executable=executable,
-            default_init_commands=init_commands,
-            default_timeout=default_timeout,
-        )
-
-        # Python session state tracking (for IPython sessions)
-        self.python_sessions: Dict[str, Dict[str, Any]] = {}
-
         logger.info(
             f"CodeExecutionTools initialized (executable: {executable}, "
-            f"init_commands: {len(init_commands)})"
+            f"init_commands: {len(init_commands or [])})"
         )
 
     async def execute_terminal(
@@ -64,59 +46,23 @@ class CodeExecutionTools:
         session: str = "default",
         timeout: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """
-        Execute a terminal command in a persistent shell session.
-
-        Args:
-            command: Shell command to execute
-            session: Session identifier
-            timeout: Execution timeout in seconds
-
-        Returns:
-            Dict with:
-                - success: bool
-                - output: str
-                - exit_code: int
-                - session: str
-                - error: Optional[str]
-        """
+        """Execute terminal command using Agent Zero pattern."""
         logger.info(f"Executing terminal command in session '{session}': {command[:50]}...")
 
-        try:
-            # Use first_output_timeout for first command in session
-            if session not in self.shell_manager.sessions:
-                timeout = timeout or self.first_output_timeout
-            else:
-                timeout = timeout or self.default_timeout
+        # Use first_output_timeout for first command in session
+        if session not in self.shell_manager.sessions:
+            timeout = timeout or self.first_output_timeout
+        else:
+            timeout = timeout or self.default_timeout
 
-            # Execute the command
-            result = await asyncio.to_thread(
-                self.shell_manager.execute_command,
-                command=command,
-                session_id=session,
-                timeout=timeout,
-            )
+        prefix = "bash> " + self._format_command_for_output(command) + "\n\n"
 
-            success = result.get("exit_code", -1) == 0 and not result.get("timed_out", False)
-
-            return {
-                "success": success,
-                "output": result.get("output", ""),
-                "exit_code": result.get("exit_code", -1),
-                "session": session,
-                "timed_out": result.get("timed_out", False),
-                "error": result.get("error") if not success else None,
-            }
-
-        except Exception as e:
-            logger.error(f"Terminal execution error: {e}")
-            return {
-                "success": False,
-                "output": "",
-                "exit_code": -1,
-                "session": session,
-                "error": f"Execution error: {str(e)}",
-            }
+        return await self._terminal_session(
+            session=session,
+            command=command,
+            timeout=timeout,
+            prefix=prefix
+        )
 
     async def execute_python(
         self,
@@ -124,301 +70,266 @@ class CodeExecutionTools:
         session: str = "default",
         timeout: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """
-        Execute Python code using IPython in a persistent session.
-
-        Args:
-            code: Python code to execute
-            session: Session identifier
-            timeout: Execution timeout in seconds
-
-        Returns:
-            Dict with:
-                - success: bool
-                - output: str
-                - error: Optional[str]
-                - session: str
-        """
+        """Execute Python code using Agent Zero's ipython -c approach."""
         logger.info(f"Executing Python code in session '{session}'")
+        timeout = timeout or self.default_timeout
 
-        try:
-            timeout = timeout or self.default_timeout
+        # Agent Zero's approach: ipython -c {escaped_code}
+        escaped_code = shlex.quote(code)
+        command = f"ipython -c {escaped_code}"
+        prefix = "python> " + self._format_command_for_output(code) + "\n\n"
 
-            # Initialize session if needed
-            if session not in self.python_sessions:
-                await self._initialize_python_session(session)
+        return await self._terminal_session(
+            session=session,
+            command=command,
+            timeout=timeout,
+            prefix=prefix
+        )
 
-            # Execute via IPython
-            result = await self._execute_ipython_code(code, session, timeout)
+    async def _terminal_session(
+        self,
+        session: str,
+        command: str,
+        timeout: int,
+        prefix: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Execute command in terminal session (Agent Zero pattern).
+        Includes retry logic on connection loss.
+        """
+        # Try twice in case of connection loss
+        for attempt in range(2):
+            try:
+                shell_session = await self.shell_manager.get_or_create_session(session)
+                await shell_session.send_command(command)
 
-            return {
-                "success": result["success"],
-                "output": result["output"],
-                "error": result.get("error"),
-                "session": session,
-            }
+                return await self._get_terminal_output(
+                    session=session,
+                    timeout=timeout,
+                    prefix=prefix
+                )
+            except Exception as e:
+                if attempt == 0:
+                    # Retry once on connection loss
+                    logger.warning(f"Connection error, retrying: {e}")
+                    await self.shell_manager.reset_session(session)
+                    continue
+                else:
+                    logger.error(f"Terminal session error: {e}")
+                    return {
+                        "success": False,
+                        "output": "",
+                        "session": session,
+                        "error": f"Execution error: {str(e)}",
+                    }
 
-        except Exception as e:
-            logger.error(f"Python execution error: {e}")
+    async def _get_terminal_output(
+        self,
+        session: str,
+        timeout: int,
+        prefix: str = "",
+        first_output_timeout: Optional[int] = None,
+        between_output_timeout: int = 15,
+        dialog_timeout: int = 5,
+        max_exec_timeout: int = 180,
+        sleep_time: float = 0.1,
+    ) -> Dict[str, Any]:
+        """
+        Get terminal output with Agent Zero's sophisticated detection logic.
+        Includes prompt detection, dialog detection, and multiple timeout modes.
+        """
+        first_output_timeout = first_output_timeout or timeout
+
+        # Shell prompt patterns (Agent Zero)
+        prompt_patterns = [
+            re.compile(r"\(venv\).+[$#] ?$"),  # (venv) ...$ or (venv) ...#
+            re.compile(r"root@[^:]+:[^#]+# ?$"),  # root@container:~#
+            re.compile(r"[a-zA-Z0-9_.-]+@[^:]+:[^$#]+[$#] ?$"),  # user@host:~$
+            re.compile(r"bash-\d+\.\d+\$ ?$"),  # bash-3.2$
+        ]
+
+        # Dialog detection patterns (Agent Zero)
+        dialog_patterns = [
+            re.compile(r"Y/N", re.IGNORECASE),  # Y/N anywhere
+            re.compile(r"yes/no", re.IGNORECASE),  # yes/no anywhere
+            re.compile(r":\s*$"),  # line ending with colon
+            re.compile(r"\?\s*$"),  # line ending with question mark
+        ]
+
+        start_time = time.time()
+        last_output_time = start_time
+        full_output = ""
+        got_output = False
+
+        shell_session = self.shell_manager.sessions.get(session)
+        if not shell_session:
             return {
                 "success": False,
                 "output": "",
-                "error": f"Execution error: {str(e)}",
                 "session": session,
+                "error": "Session not found",
             }
 
-    async def _initialize_python_session(self, session: str) -> None:
-        """Initialize a Python/IPython session."""
-        logger.info(f"Initializing Python session '{session}'")
+        while True:
+            await asyncio.sleep(sleep_time)
 
-        # Create session state
-        self.python_sessions[session] = {
-            "initialized": True,
-            "output_history": [],
-        }
-
-        # Start IPython by importing it (this validates it's installed)
-        try:
-            import IPython
-            logger.debug(f"IPython version: {IPython.__version__}")
-        except ImportError:
-            logger.error("IPython not installed - Python execution will fail")
-            raise RuntimeError(
-                "IPython is required for Python code execution. "
-                "Install with: pip install ipython"
-            )
-
-    async def _execute_ipython_code(
-        self, code: str, session: str, timeout: int
-    ) -> Dict[str, Any]:
-        """Execute code using IPython."""
-        # Create a temporary Python script that uses IPython
-        script = f'''
-import sys
-import io
-from IPython.core.interactiveshell import InteractiveShell
-
-# Capture stdout/stderr
-old_stdout = sys.stdout
-old_stderr = sys.stderr
-stdout_capture = io.StringIO()
-stderr_capture = io.StringIO()
-
-try:
-    sys.stdout = stdout_capture
-    sys.stderr = stderr_capture
-
-    # Create IPython shell
-    ipython = InteractiveShell.instance()
-
-    # Execute the code
-    result = ipython.run_cell("""
-{code}
-""", store_history=True)
-
-    # Restore stdout/stderr
-    sys.stdout = old_stdout
-    sys.stderr = old_stderr
-
-    # Get outputs
-    stdout_text = stdout_capture.getvalue()
-    stderr_text = stderr_capture.getvalue()
-
-    # Check for errors
-    if result.error_in_exec or result.error_before_exec:
-        print("ERROR:", stderr_text, file=sys.stderr)
-        sys.exit(1)
-    else:
-        # Print captured output
-        if stdout_text:
-            print(stdout_text, end="")
-        if stderr_text:
-            print(stderr_text, file=sys.stderr, end="")
-
-        # Print result if there is one
-        if result.result is not None:
-            print(repr(result.result))
-
-except Exception as e:
-    sys.stdout = old_stdout
-    sys.stderr = old_stderr
-    import traceback
-    print(f"EXCEPTION: {{str(e)}}", file=sys.stderr)
-    traceback.print_exc()
-    sys.exit(1)
-'''
-
-        # Write to temporary file
-        with tempfile.NamedTemporaryFile(
-            mode='w', suffix='.py', delete=False, encoding='utf-8'
-        ) as f:
-            f.write(script)
-            temp_file = f.name
-
-        try:
-            # Execute using Python
-            python_cmd = f'{sys.executable} "{temp_file}"'
-
-            # Use shell manager to execute
-            result = await asyncio.to_thread(
-                self.shell_manager.execute_command,
-                command=python_cmd,
-                session_id=f"python_{session}",
-                timeout=timeout,
-            )
-
-            # Clean up temp file
+            # Read output
             try:
-                os.unlink(temp_file)
-            except Exception:
-                pass
+                full_output_new, partial_output = await shell_session.read_output(timeout=1)
+                if full_output_new:
+                    full_output = full_output_new
+            except Exception as e:
+                logger.error(f"Error reading output: {e}")
+                break
 
-            # Parse result
-            success = result.get("exit_code", -1) == 0
-            output = result.get("output", "")
-            error = None
+            now = time.time()
 
-            if not success or result.get("timed_out"):
-                error = output if "ERROR:" in output or "EXCEPTION:" in output else "Execution failed"
+            if partial_output:
+                last_output_time = now
+                got_output = True
 
-            # Store in session history
-            if session in self.python_sessions:
-                self.python_sessions[session]["output_history"].append({
-                    "code": code,
-                    "output": output,
-                    "error": error,
-                })
+                # Check for shell prompt (command complete)
+                last_lines = full_output.splitlines()[-3:] if full_output else []
+                last_lines.reverse()
 
-            return {
-                "success": success,
-                "output": output,
-                "error": error,
-            }
+                for idx, line in enumerate(last_lines):
+                    for pat in prompt_patterns:
+                        if pat.search(line.strip()):
+                            logger.debug("Detected shell prompt, command complete")
+                            return {
+                                "success": True,
+                                "output": prefix + self._fix_output(full_output),
+                                "session": session,
+                                "exit_code": 0,
+                            }
 
-        except Exception as e:
-            # Clean up temp file on error
-            try:
-                if os.path.exists(temp_file):
-                    os.unlink(temp_file)
-            except Exception:
-                pass
-            raise
+            # Max execution timeout
+            if now - start_time > max_exec_timeout:
+                logger.warning(f"Max execution timeout ({max_exec_timeout}s)")
+                return {
+                    "success": False,
+                    "output": prefix + self._fix_output(full_output),
+                    "session": session,
+                    "error": f"Maximum execution time exceeded ({max_exec_timeout}s)",
+                    "timed_out": True,
+                }
+
+            # Waiting for first output
+            if not got_output:
+                if now - start_time > first_output_timeout:
+                    logger.warning(f"No output after {first_output_timeout}s")
+                    return {
+                        "success": False,
+                        "output": prefix,
+                        "session": session,
+                        "error": f"No output received within {first_output_timeout}s",
+                        "timed_out": True,
+                    }
+            else:
+                # Waiting for more output
+                if now - last_output_time > between_output_timeout:
+                    logger.debug(f"No output for {between_output_timeout}s, returning")
+                    return {
+                        "success": True,
+                        "output": prefix + self._fix_output(full_output),
+                        "session": session,
+                        "exit_code": 0,
+                    }
+
+                # Dialog detection
+                if now - last_output_time > dialog_timeout:
+                    last_lines = full_output.splitlines()[-2:] if full_output else []
+                    for line in last_lines:
+                        for pat in dialog_patterns:
+                            if pat.search(line.strip()):
+                                logger.debug("Detected dialog prompt")
+                                return {
+                                    "success": True,
+                                    "output": prefix + self._fix_output(full_output),
+                                    "session": session,
+                                    "exit_code": 0,
+                                    "dialog_detected": True,
+                                }
+
+    def _format_command_for_output(self, command: str) -> str:
+        """Format command for output display (Agent Zero)."""
+        # Truncate long commands
+        short_cmd = command[:200]
+        # Normalize whitespace
+        short_cmd = " ".join(short_cmd.split())
+        # Final truncation
+        if len(short_cmd) > 100:
+            short_cmd = short_cmd[:97] + "..."
+        return short_cmd
+
+    def _fix_output(self, output: str) -> str:
+        """Clean and fix output (Agent Zero pattern)."""
+        if not output:
+            return ""
+
+        # Remove single byte \xXX escapes
+        output = re.sub(r"(?<!\\)\\x[0-9A-Fa-f]{2}", "", output)
+
+        # Strip lines
+        output = "\n".join(line.strip() for line in output.splitlines())
+
+        # Truncate if too large (1MB limit)
+        max_size = 1000000
+        if len(output) > max_size:
+            output = output[:max_size] + f"\n\n... (output truncated at {max_size} bytes)"
+
+        return output
 
     async def get_output(
         self,
         session: str = "default",
         lines: int = 50,
     ) -> Dict[str, Any]:
-        """
-        Get recent output from a session.
-
-        Args:
-            session: Session identifier
-            lines: Number of recent lines to retrieve
-
-        Returns:
-            Dict with:
-                - success: bool
-                - output: str
-                - session: str
-                - lines_returned: int
-        """
+        """Get recent output from a session."""
         logger.info(f"Getting output for session '{session}' (last {lines} lines)")
 
         try:
-            # Get shell session output
-            output = await asyncio.to_thread(
-                self.shell_manager.get_output,
+            output = await self.shell_manager.get_output(
                 session_id=session,
                 lines=lines,
             )
-
-            # If this is a Python session, append Python history
-            if session in self.python_sessions:
-                python_history = self.python_sessions[session]["output_history"][-lines:]
-                python_output = []
-
-                for item in python_history:
-                    python_output.append(f">>> {item['code']}")
-                    if item['output']:
-                        python_output.append(item['output'])
-                    if item['error']:
-                        python_output.append(f"ERROR: {item['error']}")
-
-                if python_output:
-                    output = output + "\n\n--- Python History ---\n" + "\n".join(python_output)
-
-            output_lines = output.count('\n') + 1 if output else 0
 
             return {
                 "success": True,
                 "output": output,
                 "session": session,
-                "lines_returned": output_lines,
+                "lines_returned": len(output.splitlines()) if output else 0,
             }
 
         except Exception as e:
-            logger.error(f"Error getting output for session '{session}': {e}")
+            logger.error(f"Error getting output: {e}")
             return {
                 "success": False,
                 "output": "",
                 "session": session,
-                "error": str(e),
-                "lines_returned": 0,
+                "error": f"Error retrieving output: {str(e)}",
             }
 
     async def reset(
         self,
         session: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Reset a session or all sessions.
-
-        Args:
-            session: Session to reset (None = reset all)
-
-        Returns:
-            Dict with:
-                - success: bool
-                - message: str
-                - sessions_reset: str or int
-        """
+        """Reset sessions."""
         try:
             if session is None:
                 # Reset all sessions
                 logger.info("Resetting all sessions")
-
-                shell_count = await asyncio.to_thread(
-                    self.shell_manager.reset_all_sessions
-                )
-                python_count = len(self.python_sessions)
-                self.python_sessions.clear()
-
-                total = shell_count + python_count
+                count = await self.shell_manager.reset_all_sessions()
 
                 return {
                     "success": True,
-                    "message": f"Reset {total} sessions ({shell_count} shell, {python_count} Python)",
-                    "sessions_reset": total,
+                    "message": f"Reset {count} session(s)",
+                    "sessions_reset": count,
                 }
             else:
                 # Reset specific session
                 logger.info(f"Resetting session '{session}'")
-
-                success = await asyncio.to_thread(
-                    self.shell_manager.reset_session,
-                    session_id=session,
-                )
-
-                # Also reset Python session if it exists
-                if session in self.python_sessions:
-                    del self.python_sessions[session]
-
-                if f"python_{session}" in self.shell_manager.sessions:
-                    await asyncio.to_thread(
-                        self.shell_manager.reset_session,
-                        session_id=f"python_{session}",
-                    )
+                success = await self.shell_manager.reset_session(session_id=session)
 
                 return {
                     "success": success,
@@ -431,20 +342,4 @@ except Exception as e:
             return {
                 "success": False,
                 "message": f"Reset error: {str(e)}",
-                "sessions_reset": None,
             }
-
-    def list_sessions(self) -> list[Dict[str, Any]]:
-        """List all active sessions."""
-        sessions = self.shell_manager.list_sessions()
-
-        # Add Python session info
-        for session_id in self.python_sessions.keys():
-            sessions.append({
-                "session_id": session_id,
-                "type": "python",
-                "is_alive": True,
-                "history_size": len(self.python_sessions[session_id]["output_history"]),
-            })
-
-        return sessions
