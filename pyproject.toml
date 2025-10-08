@@ -24,8 +24,7 @@ dependencies = [
     "mcp>=1.0.0",
     "fastmcp>=2.0.0",
     "ipython>=8.0.0",
-    "pexpect>=4.9.0",
-    "psutil>=5.9.0",
+    "webcolors>=1.13.0",
 ]
 
 [project.scripts]
@@ -37,6 +36,9 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
+]
+windows = [
+    "pywinpty>=2.0.0",
 ]
 
 [tool.setuptools.packages.find]
