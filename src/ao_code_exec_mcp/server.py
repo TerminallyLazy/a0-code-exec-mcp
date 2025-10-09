@@ -11,7 +11,7 @@ from typing import Any, Optional
 
 from fastmcp import FastMCP
 
-from .tools import CodeExecutionTools
+from ao_code_exec_mcp.tools import CodeExecutionTools
 
 # Configure logging
 logging.basicConfig(
