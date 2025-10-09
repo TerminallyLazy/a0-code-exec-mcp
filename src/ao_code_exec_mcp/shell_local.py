@@ -18,9 +18,9 @@ def clean_string(input_string: str) -> str:
     Enhanced version that also removes OSC sequences and other control codes.
     Based on Agent Zero's shell_ssh.py clean_string function.
     """
-    osc_pattern = re.compile(r'\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)')
-    cleaned = osc_pattern.sub('', input_string)
-    
+    osc_pattern = re.compile(r"\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)")
+    cleaned = osc_pattern.sub("", input_string)
+
     ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
     cleaned = ansi_escape.sub("", cleaned)
 
