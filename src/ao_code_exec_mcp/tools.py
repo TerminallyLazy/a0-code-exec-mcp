@@ -1,6 +1,6 @@
 """
-Code Execution Tools - Ported from Agent Zero
-Using Agent Zero's original code with minimal changes for MCP integration
+Code Execution Tools - FIXED VERSION with Python persistence
+This version maintains persistent IPython sessions for true state preservation.
 """
 
 import asyncio
@@ -9,18 +9,18 @@ import shlex
 import time
 from typing import Any, Dict, Optional
 
-from .log import Log
-from .print_style import PrintStyle
-from .shell_local import LocalInteractiveSession
-from .strings import truncate_text
+from src.ao_code_exec_mcp.log import Log
+from src.ao_code_exec_mcp.print_style import PrintStyle
+from src.ao_code_exec_mcp.shell_local import LocalInteractiveSession
+from src.ao_code_exec_mcp.strings import truncate_text
 
 logger = logging.getLogger(__name__)
 
 
 class CodeExecutionTools:
     """
-    Code execution tools ported from Agent Zero.
-    Provides terminal and Python execution with session management.
+    Code execution tools with FIXED Python persistence.
+    Now maintains persistent IPython sessions for true state preservation.
     """
 
     def __init__(
@@ -36,7 +36,12 @@ class CodeExecutionTools:
         self.default_timeout = default_timeout
         self.first_output_timeout = first_output_timeout
 
+        # Terminal sessions
         self.sessions: Dict[str, LocalInteractiveSession] = {}
+
+        # Python sessions - separate persistent IPython processes
+        self.python_sessions: Dict[str, LocalInteractiveSession] = {}
+
         self.log = Log()
 
         logger.info(f"CodeExecutionTools initialized (executable: {executable})")
@@ -72,18 +77,27 @@ class CodeExecutionTools:
     async def execute_python(
         self, code: str, session: str = "default", timeout: Optional[int] = None
     ) -> Dict[str, Any]:
-        """Execute Python code using Agent Zero's ipython logic."""
+        """
+        Execute Python code with PERSISTENT IPython session.
+        FIXED: Variables, functions, and imports now persist between executions!
+        """
         try:
-            if session not in self.sessions:
-                await self._init_session(session)
+            # Initialize Python session if needed
+            if session not in self.python_sessions:
+                await self._init_python_session(session)
 
             timeout = timeout or self.default_timeout
 
-            escaped_code = shlex.quote(code)
-            command = f"ipython -c {escaped_code}"
+            # Send code directly to the persistent IPython process
+            python_shell = self.python_sessions[session]
+            await python_shell.send_command(code)
+
             prefix = "python> " + self._format_command_for_output(code) + "\n\n"
 
-            result = await self._terminal_session(session, command, timeout, prefix)
+            # Get output from the Python session
+            result = await self._get_terminal_output_from_shell(
+                python_shell, timeout, prefix
+            )
 
             return {
                 "success": True,
@@ -117,34 +131,56 @@ class CodeExecutionTools:
         }
 
     async def reset(self, session: Optional[str] = None) -> Dict[str, Any]:
-        """Reset session(s) using Agent Zero's logic."""
+        """
+        Reset session(s).
+        FIXED: Now properly handles both terminal and Python sessions.
+        """
         try:
             if session is None:
-                session_names = list(self.sessions.keys())
-                for s in session_names:
-                    await self.sessions[s].close()
-                self.sessions.clear()
+                # Reset all sessions (both terminal and Python)
+                terminal_count = len(self.sessions)
+                python_count = len(self.python_sessions)
 
-                PrintStyle(font_color="#FFA500", bold=True).print("Resetting all sessions...")
+                for s in list(self.sessions.keys()):
+                    await self.sessions[s].close()
+                for s in list(self.python_sessions.keys()):
+                    await self.python_sessions[s].close()
+
+                self.sessions.clear()
+                self.python_sessions.clear()
+
+                total = terminal_count + python_count
+                PrintStyle(font_color="#FFA500", bold=True).print(
+                    f"Resetting all sessions ({terminal_count} terminal, {python_count} Python)..."
+                )
 
                 return {
                     "success": True,
-                    "message": f"All sessions reset ({len(session_names)} sessions)",
-                    "sessions_reset": len(session_names),
+                    "message": f"All sessions reset ({total} sessions)",
+                    "sessions_reset": total,
                 }
             else:
+                # Reset specific session (check both terminal and Python)
+                count = 0
+
                 if session in self.sessions:
                     await self.sessions[session].close()
                     del self.sessions[session]
+                    count += 1
 
-                    PrintStyle(font_color="#FFA500", bold=True).print(
-                        f"Resetting session '{session}'..."
-                    )
+                if session in self.python_sessions:
+                    await self.python_sessions[session].close()
+                    del self.python_sessions[session]
+                    count += 1
+
+                PrintStyle(font_color="#FFA500", bold=True).print(
+                    f"Resetting session '{session}'..."
+                )
 
                 return {
                     "success": True,
-                    "message": f"Session '{session}' reset",
-                    "sessions_reset": 1,
+                    "message": f"Session '{session}' reset ({count} session(s))",
+                    "sessions_reset": count,
                 }
         except Exception as e:
             logger.error(f"Reset error: {e}")
@@ -155,14 +191,37 @@ class CodeExecutionTools:
             }
 
     async def _init_session(self, session: str):
-        """Initialize a new session with init commands."""
-        logger.info(f"Initializing session '{session}'")
+        """Initialize a new terminal session with init commands."""
+        logger.info(f"Initializing terminal session '{session}'")
 
         shell = LocalInteractiveSession(
             executable=self.executable, init_commands=self.init_commands
         )
         await shell.connect()
         self.sessions[session] = shell
+
+    async def _init_python_session(self, session: str):
+        """
+        Initialize a persistent IPython session.
+        FIXED: This is the key change - IPython stays running!
+        """
+        logger.info(f"Initializing Python session '{session}'")
+
+        # Start IPython in interactive mode (stays running)
+        python_init_commands = self.init_commands.copy()
+        python_init_commands.append("ipython --no-banner --no-confirm-exit --colors=NoColor")
+
+        shell = LocalInteractiveSession(
+            executable=self.executable,
+            init_commands=python_init_commands
+        )
+        await shell.connect()
+        self.python_sessions[session] = shell
+
+        # Wait for IPython to be fully ready
+        await asyncio.sleep(0.5)
+
+        logger.info(f"Python session '{session}' ready with persistent IPython")
 
     async def _terminal_session(
         self, session: str, command: str, timeout: int, prefix: str = ""
@@ -186,7 +245,18 @@ class CodeExecutionTools:
     ) -> str:
         """Get terminal output - ported from Agent Zero's get_terminal_output."""
         shell = self.sessions[session]
+        return await self._get_terminal_output_from_shell(shell, timeout, prefix)
 
+    async def _get_terminal_output_from_shell(
+        self,
+        shell: LocalInteractiveSession,
+        timeout: int,
+        prefix: str = "",
+    ) -> str:
+        """
+        Get output from a specific shell instance.
+        FIXED: Extracted to separate method so it can be used for both terminal and Python sessions.
+        """
         start_time = time.time()
         full_output = ""
         got_output = False
