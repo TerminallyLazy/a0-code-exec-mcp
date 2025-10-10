@@ -25,6 +25,7 @@ class TTYSession:
         self.executable = executable
         self.process = None
         self.is_windows = platform.system() == "Windows"
+        self.use_pty = True
 
     async def start(self):
         """Start the TTY session."""
@@ -44,42 +45,73 @@ class TTYSession:
         await asyncio.sleep(0.1)
 
     async def _start_posix(self):
-        """Start POSIX TTY session."""
+        """Start POSIX TTY session with fallback to non-PTY subprocess."""
         import fcntl
-        import pty
-        import struct
-        import termios
+        import logging
 
-        master_fd, slave_fd = pty.openpty()
+        logger = logging.getLogger(__name__)
 
-        self.process = await asyncio.create_subprocess_exec(
-            self.executable,
-            stdin=slave_fd,
-            stdout=slave_fd,
-            stderr=slave_fd,
-            preexec_fn=os.setsid,
+        force_no_pty = os.environ.get("FORCE_NO_PTY", "").lower() in (
+            "1",
+            "true",
+            "yes",
         )
 
-        os.close(slave_fd)
-        self.master_fd = master_fd
+        if not force_no_pty:
+            try:
+                import pty
+                import struct
+                import termios
 
-        fcntl.fcntl(master_fd, fcntl.F_SETFL, os.O_NONBLOCK)
+                master_fd, slave_fd = pty.openpty()
 
-        winsize = struct.pack("HHHH", 24, 80, 0, 0)
-        fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
+                self.process = await asyncio.create_subprocess_exec(
+                    self.executable,
+                    stdin=slave_fd,
+                    stdout=slave_fd,
+                    stderr=slave_fd,
+                    preexec_fn=os.setsid,
+                )
 
+                os.close(slave_fd)
+                self.master_fd = master_fd
+
+                fcntl.fcntl(master_fd, fcntl.F_SETFL, os.O_NONBLOCK)
+
+                winsize = struct.pack("HHHH", 24, 80, 0, 0)
+                fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
+
+                await asyncio.sleep(0.1)
+
+                await self.sendline("stty -echo")
+                await asyncio.sleep(0.1)
+                await self.read_full_until_idle(idle_timeout=0.5, total_timeout=2)
+
+                self.use_pty = True
+                logger.info("TTY session started with PTY")
+                return
+            except (OSError, ImportError) as e:
+                logger.info(f"PTY allocation failed ({e}), falling back to subprocess mode")
+
+        self.use_pty = False
+        self.process = await asyncio.create_subprocess_exec(
+            self.executable,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        logger.info("TTY session started in non-PTY subprocess mode")
         await asyncio.sleep(0.1)
-
-        await self.sendline("stty -echo")
-        await asyncio.sleep(0.1)
-        await self.read_full_until_idle(idle_timeout=0.5, total_timeout=2)
 
     async def sendline(self, command: str):
         """Send a command to the terminal."""
         if self.is_windows:
             self.process.write(command + "\r\n")
-        else:
+        elif self.use_pty:
             os.write(self.master_fd, (command + "\n").encode("utf-8", errors="replace"))
+        else:
+            self.process.stdin.write((command + "\n").encode("utf-8", errors="replace"))
+            await self.process.stdin.drain()
 
     async def read_full_until_idle(
         self, idle_timeout: float = 0.5, total_timeout: float = 30
@@ -101,15 +133,23 @@ class TTYSession:
             try:
                 if self.is_windows:
                     chunk = self.process.read(1024)
-                else:
+                elif self.use_pty:
                     chunk = os.read(self.master_fd, 4096).decode("utf-8", errors="replace")
+                else:
+                    chunk_bytes = await asyncio.wait_for(
+                        self.process.stdout.read(4096), timeout=0.1
+                    )
+                    if chunk_bytes:
+                        chunk = chunk_bytes.decode("utf-8", errors="replace")
+                    else:
+                        chunk = None
 
                 if chunk:
                     output += chunk
                     last_output_time = current_time
                 else:
                     await asyncio.sleep(0.01)
-            except (OSError, BlockingIOError):
+            except (OSError, BlockingIOError, asyncio.TimeoutError):
                 await asyncio.sleep(0.01)
             except Exception:
                 break
@@ -123,10 +163,14 @@ class TTYSession:
                 self.process.terminate()
         else:
             if self.process:
+                if not self.use_pty and self.process.stdin:
+                    self.process.stdin.close()
+
                 self.process.terminate()
                 try:
                     await asyncio.wait_for(self.process.wait(), timeout=2)
                 except asyncio.TimeoutError:
                     self.process.kill()
-            if hasattr(self, "master_fd"):
+
+            if self.use_pty and hasattr(self, "master_fd"):
                 os.close(self.master_fd)
