@@ -1,7 +1,3 @@
-"""
-Code Execution Tool for MCP
-Adapted from Agent Zero's code_execution_tool.py with minimal changes.
-"""
 import asyncio
 from dataclasses import dataclass
 import shlex
@@ -15,7 +11,6 @@ from helpers.log import Log
 
 
 def truncate_text_agent(output: str, threshold: int = 1000000) -> str:
-    """Truncate text for agent output."""
     if len(output) <= threshold:
         return output
     return truncate_text_string(output, threshold)
@@ -23,30 +18,14 @@ def truncate_text_agent(output: str, threshold: int = 1000000) -> str:
 
 @dataclass
 class State:
-    """State management for shell sessions."""
     shells: dict[int, LocalInteractiveSession]
 
 
 class CodeExecutionTool:
-    """
-    Code execution tool adapted from Agent Zero.
-    Preserves Agent Zero's battle-tested logic with minimal MCP adaptations.
-    """
 
     def __init__(self, executable: str = "/bin/bash", init_commands: list[str] | None = None,
                  first_output_timeout: int = 30, between_output_timeout: int = 15,
                  dialog_timeout: int = 5, max_exec_timeout: int = 180):
-        """
-        Initialize the code execution tool.
-
-        Args:
-            executable: Shell executable (default: /bin/bash)
-            init_commands: Commands to run when creating a new shell session
-            first_output_timeout: Timeout waiting for first output (seconds)
-            between_output_timeout: Timeout between output chunks (seconds)
-            dialog_timeout: Timeout for detecting dialog prompts (seconds)
-            max_exec_timeout: Maximum execution time (seconds)
-        """
         self.executable = executable
         self.init_commands = init_commands or []
         self.default_timeouts = {
@@ -60,7 +39,6 @@ class CodeExecutionTool:
         self.prompts_dir = os.path.join(os.path.dirname(__file__), "prompts")
 
     def read_prompt(self, filename: str, **kwargs) -> str:
-        """Read prompt file from prompts directory and format with kwargs."""
         filepath = os.path.join(self.prompts_dir, filename)
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
@@ -73,7 +51,6 @@ class CodeExecutionTool:
             return f"[Prompt file not found: {filename}]"
 
     async def prepare_state(self, reset=False, session: int | None = None):
-        """Prepare shell session state - PRESERVED FROM AGENT ZERO."""
         if not self.state:
             shells: dict[int, LocalInteractiveSession] = {}
         else:
@@ -105,19 +82,16 @@ class CodeExecutionTool:
         return self.state
 
     async def execute_python_code(self, session: int, code: str, reset: bool = False):
-        """Execute Python code via ipython - PRESERVED FROM AGENT ZERO."""
         escaped_code = shlex.quote(code)
         command = f"ipython -c {escaped_code}"
         prefix = "python> " + self.format_command_for_output(code) + "\n\n"
         return await self.terminal_session(session, command, reset, prefix)
 
     async def execute_terminal_command(self, session: int, command: str, reset: bool = False):
-        """Execute terminal command - PRESERVED FROM AGENT ZERO."""
         prefix = "bash> " + self.format_command_for_output(command) + "\n\n"
         return await self.terminal_session(session, command, reset, prefix)
 
     async def terminal_session(self, session: int, command: str, reset: bool = False, prefix: str = ""):
-        """Execute command in terminal session - PRESERVED FROM AGENT ZERO."""
         self.state = await self.prepare_state(reset=reset, session=session)
 
         # try again on lost connection
@@ -140,7 +114,6 @@ class CodeExecutionTool:
                     raise e
 
     def format_command_for_output(self, command: str):
-        """Format command for display - PRESERVED FROM AGENT ZERO."""
         # truncate long commands
         short_cmd = command[:200]
         # normalize whitespace for cleaner output
@@ -160,8 +133,6 @@ class CodeExecutionTool:
         sleep_time=0.1,
         prefix="",
     ):
-        """Get terminal output with timeout logic - PRESERVED FROM AGENT ZERO."""
-
         # Use default timeouts if not specified
         first_output_timeout = first_output_timeout or self.default_timeouts['first_output_timeout']
         between_output_timeout = between_output_timeout or self.default_timeouts['between_output_timeout']
@@ -280,7 +251,6 @@ class CodeExecutionTool:
                                 return response
 
     async def reset_terminal(self, session=0, reason: str | None = None):
-        """Reset terminal session - PRESERVED FROM AGENT ZERO."""
         # Print the reason for the reset to the console if provided
         if reason:
             PrintStyle(font_color="#FFA500", bold=True).print(
@@ -299,7 +269,6 @@ class CodeExecutionTool:
         return response
 
     def fix_full_output(self, output: str):
-        """Clean and truncate output - PRESERVED FROM AGENT ZERO."""
         # remove any single byte \xXX escapes
         output = re.sub(r"(?<!\\)\\x[0-9A-Fa-f]{2}", "", output)
         # Strip every line of output before truncation

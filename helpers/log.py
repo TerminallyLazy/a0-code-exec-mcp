@@ -1,8 +1,3 @@
-"""
-Minimal log.py placeholder for MCP compatibility.
-Provides no-op implementations of Log and LogItem classes used by Agent Zero.
-"""
-
 class LogItem:
     """Minimal placeholder for LogItem."""
 
@@ -37,15 +32,12 @@ class Log:
         self.items = []
 
     def log(self, type="", heading="", content="", kvps=None, temp=False):
-        """Create a log entry - returns placeholder LogItem."""
         item = LogItem(type=type, heading=heading, content=content, kvps=kvps, temp=temp)
         self.items.append(item)
         return item
 
     def output(self, from_item=None):
-        """Output log items - returns empty list for MCP."""
         return []
 
     def reset(self):
-        """Reset log - no-op for MCP."""
         self.items = []

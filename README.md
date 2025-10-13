@@ -166,10 +166,21 @@ Only use with trusted AI agents and in controlled environments.
 
 ## License
 
-This package wraps code from [Agent Zero](https://github.com/agent0ai/agent-zero).
+MIT License
+
+This project wraps and reuses code from [Agent Zero](https://github.com/agent0ai/agent-zero) (Copyright (c) 2025 Agent Zero, s.r.o), which is licensed under the MIT License.
+
+See the LICENSE file for full license text and attribution details.
 
 ## Credits
 
-Built on [Agent Zero's](https://github.com/agent0ai/agent-zero) proven code execution implementation.
+**Built on Agent Zero's proven code execution implementation.**
+
+This MCP server preserves and reuses Agent Zero's battle-tested code:
+- Core execution logic from `code_execution_tool.py`
+- Helper modules: `tty_session.py`, `shell_local.py`, `print_style.py`, `strings.py`
+- All system message prompts
+
+All credit for the robust code execution implementation goes to the [Agent Zero](https://github.com/agent0ai/agent-zero) team.
 
 Uses [FastMCP](https://gofastmcp.com/) for MCP protocol handling.

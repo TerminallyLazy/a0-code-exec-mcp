@@ -131,7 +131,6 @@ def truncate_text(text: str, length: int, at_end: bool = True, replacement: str 
         return replacement + text[-length:]
     
 def truncate_text_by_ratio(text: str, threshold: int, replacement: str = "...", ratio: float = 0.5) -> str:
-    """Truncate text with replacement at a specified ratio position."""
     threshold = int(threshold)
     if not threshold or len(text) <= threshold:
         return text

@@ -1,7 +1,6 @@
 import re
 
 def clean_string(input_string):
-    """Remove ANSI escape codes and clean up terminal output."""
     # Remove ANSI escape codes
     ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
     cleaned = ansi_escape.sub("", input_string)

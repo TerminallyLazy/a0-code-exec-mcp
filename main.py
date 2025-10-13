@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Code Execution MCP Server
-Exposes Agent Zero's code execution capabilities via MCP protocol.
-"""
 import os
 import sys
 from fastmcp import FastMCP
@@ -39,16 +35,6 @@ code_tool = CodeExecutionTool(
 
 @mcp.tool()
 async def execute_terminal(command: str, session: int = 0) -> str:
-    """
-    Execute a terminal command in the specified session.
-
-    Args:
-        command: The shell command to execute
-        session: Session number (default: 0) for maintaining separate shell contexts
-
-    Returns:
-        Command output as string
-    """
     try:
         result = await code_tool.execute_terminal_command(session=session, command=command)
         return result
@@ -58,19 +44,6 @@ async def execute_terminal(command: str, session: int = 0) -> str:
 
 @mcp.tool()
 async def execute_python(code: str, session: int = 0) -> str:
-    """
-    Execute Python code via IPython in the specified session.
-
-    Args:
-        code: The Python code to execute
-        session: Session number (default: 0) for maintaining separate Python contexts
-
-    Returns:
-        Python execution output as string
-
-    Note:
-        Requires ipython to be installed in the environment where the MCP server runs.
-    """
     try:
         result = await code_tool.execute_python_code(session=session, code=code)
         return result
@@ -80,15 +53,6 @@ async def execute_python(code: str, session: int = 0) -> str:
 
 @mcp.tool()
 async def get_output(session: int = 0) -> str:
-    """
-    Get accumulated output from a terminal session.
-
-    Args:
-        session: Session number (default: 0) to read output from
-
-    Returns:
-        Accumulated output as string
-    """
     try:
         result = await code_tool.get_terminal_output(session=session)
         return result
@@ -98,16 +62,6 @@ async def get_output(session: int = 0) -> str:
 
 @mcp.tool()
 async def reset_terminal(session: int = 0, reason: str | None = None) -> str:
-    """
-    Reset a terminal session, closing and reopening it.
-
-    Args:
-        session: Session number (default: 0) to reset
-        reason: Optional reason for the reset
-
-    Returns:
-        Confirmation message
-    """
     try:
         result = await code_tool.reset_terminal(session=session, reason=reason)
         return result
@@ -116,7 +70,6 @@ async def reset_terminal(session: int = 0, reason: str | None = None) -> str:
 
 
 def main():
-    """Run the MCP server with stdio transport."""
     # Run with stdio transport (default)
     mcp.run()
 
